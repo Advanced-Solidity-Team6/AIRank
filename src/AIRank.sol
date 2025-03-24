@@ -4,8 +4,9 @@ pragma solidity ^0.8.28;
 import {TypesLib} from "@blocklock-solidity/src/libraries/TypesLib.sol";
 import {AbstractBlocklockReceiver} from "@blocklock-solidity/src/AbstractBlocklockReceiver.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
+contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard, Ownable {
     struct Prediction {
         uint256 predictionID;
         address predictor;
@@ -14,6 +15,14 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         int256 revealedValue; // e.g., temperature
         bool revealed;
         uint256 accuracyScore; // lower = better
+        uint256 submissionTimestamp;
+    }
+    // tracking historical predictions (performance)
+    struct PredictorProfile {
+        address predictor;  
+        uint256 totalPredictions;
+        uint256 successfulPredictions;
+        uint256 cumulativeAccuracyScore;
     }
 
     uint256 public immutable predictionDeadlineBlock;
@@ -24,7 +33,9 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
 
     mapping(address => uint256) public predictorToID;
     mapping(uint256 => Prediction) public predictionsByID;
+    mapping(address => PredictorProfile) public predictorProfiles;
 
+    event PredictorProfileUpdated(address indexed predictor, uint256 totalPredictions, uint256 successfulPredictions, uint256 cumulativeAccuracyScore);
     event PredictionSubmitted(uint256 indexed id, address indexed predictor);
     event PredictionRevealed(uint256 indexed id, int256 value, uint256 score);
     event ResultSet(int256 actualValue);
@@ -39,8 +50,13 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         _;
     }
 
-    constructor(uint256 _predictionDeadlineBlock, address blocklockContract)
+    constructor(
+        uint256 _predictionDeadlineBlock, 
+        address blocklockContract,
+        address initialOwner
+    )
         AbstractBlocklockReceiver(blocklockContract)
+        Ownable(initialOwner)
     {
         predictionDeadlineBlock = _predictionDeadlineBlock;
     }
@@ -60,15 +76,47 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
             decryptionKey: hex"",
             revealedValue: 0,
             revealed: false,
-            accuracyScore: 0
+            accuracyScore: 0,
+            submissionTimestamp: block.timestamp
         });
 
         predictionsByID[id] = p;
         predictorToID[msg.sender] = id;
         totalPredictions += 1;
 
+        PredictorProfile memory profile = predictorProfiles[msg.sender];
+        profile.predictor = msg.sender;
+        profile.totalPredictions++;
+        emit PredictorProfileUpdated(
+            msg.sender, 
+            profile.totalPredictions, 
+            profile.successfulPredictions,
+            profile.cumulativeAccuracyScore
+        );
+
         emit PredictionSubmitted(id, msg.sender);
         return id;
+    }
+    
+    function getPredictorProfile(address predictor) 
+        external 
+        view 
+        returns (
+            address profileAddress,
+            uint256 successfulPredictions, 
+            uint256 cumulativeAccuracyScore
+        ) 
+    
+  {  
+        PredictorProfile memory profile = predictorProfiles[predictor];
+        uint256 avgScore = profile.totalPredictions > 0 
+           ? profile.cumulativeAccuracyScore / profile.totalPredictions 
+           : 0;
+        return (
+            profile.predictor, 
+            profile.successfulPredictions, 
+            avgScore
+        );
     }
 
     function setActualValue(int256 _actualValue) external onlyAfter(predictionDeadlineBlock) {
