@@ -23,6 +23,8 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         uint256 totalPredictions;
         uint256 successfulPredictions;
         uint256 cumulativeAccuracyScore;
+        uint256 reputationScore;
+        uint8 predictionTier;
     }
 
     uint256 public immutable predictionDeadlineBlock;
@@ -30,6 +32,8 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
     bool public resultSet;
     uint256 public totalPredictions;
     uint256 public revealedCount;
+    uint256 public constant ACCURACY_THRESHOLD = 2;  // Within ±2°C
+
 
     mapping(address => uint256) public predictorToID;
     mapping(uint256 => Prediction) public predictionsByID;
@@ -142,12 +146,39 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         p.accuracyScore = absDiff(revealed, int256(realWorldValue));
         revealedCount += 1;
 
+        // reputation calculation
+        PredictorProfile storage profile = predictorProfiles[p.predictor];
+        profile.totalPredictions++;
+
+        // update successful predictions and cumulative accuracy score
+        if (p.accuracyScore < ACCURACY_THRESHOLD) {
+            profile.successfulPredictions++;
+            profile.cumulativeAccuracyScore += p.accuracyScore;
+            profile.reputationScore++;
+
+            // calculate prediction tier
+            profile.predictionTier = calculateTier(profile.reputationScore);
+        }
+
+
         emit PredictionRevealed(requestID, revealed, p.accuracyScore);
     }
 
     function absDiff(int256 a, int256 b) internal pure returns (uint256) {
         return a >= b ? uint256(a - b) : uint256(b - a);
     }
+
+    function calculateTier(uint256 reputationScore) internal pure returns (uint8) {
+        if (reputationScore >= 200) {
+            return 3; // top tier Master
+        } else if (reputationScore >= 100) {
+            return 2; // mid tier Expert
+        } else if (reputationScore >= 50) {
+            return 1; // low tier Novice
+        } 
+            return 0; // no tier
+        }
+    
 
     function getPrediction(uint256 id)
         external
