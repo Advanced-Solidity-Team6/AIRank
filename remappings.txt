@@ -1,3 +1,4 @@
 src/=src/
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
 @blocklock-solidity/src/=lib/blocklock-solidity/src/
+@pythnetwork/pyth-sdk-solidity/=node_modules/@pythnetwork/pyth-sdk-solidity

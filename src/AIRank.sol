@@ -4,8 +4,10 @@ pragma solidity ^0.8.28;
 import {TypesLib} from "@blocklock-solidity/src/libraries/TypesLib.sol";
 import {AbstractBlocklockReceiver} from "@blocklock-solidity/src/AbstractBlocklockReceiver.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
-contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
+contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
     struct Prediction {
         uint256 predictionID;
         address predictor;
@@ -23,6 +25,9 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
     bool public resultSet;
     uint256 public totalPredictions;
     uint256 public revealedCount;
+
+    IPyth public pyth;
+    bytes32 public priceFeedId;
 
     mapping(address => uint256) public predictorToID;
     mapping(uint256 => Prediction) public predictionsByID;
@@ -47,10 +52,12 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
 
     // ============ Constructor ============
 
-    constructor(uint256 _predictionDeadlineBlock, address blocklockContract)
+    constructor(uint256 _predictionDeadlineBlock, address blocklockContract, address pythContract, bytes32 _priceFeedId)
         AbstractBlocklockReceiver(blocklockContract)
     {
         predictionDeadlineBlock = _predictionDeadlineBlock;
+        pyth = IPyth(pythContract);
+        priceFeedId = _priceFeedId;
     }
 
     function submitSealedPrediction(TypesLib.Ciphertext calldata sealedPrediction)
@@ -79,11 +86,25 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         return id;
     }
 
-    function setActualValue(int256 _actualValue) external onlyAfter(predictionDeadlineBlock) {
+    function setActualValueFromPyth(bytes[] calldata priceUpdateData)
+        external
+        payable
+        onlyAfter(predictionDeadlineBlock)
+    {
         require(!resultSet, "Already set.");
-        realWorldValue = uint256(int256(_actualValue));
+
+        uint256 fee = pyth.getUpdateFee(priceUpdateData);
+        require(msg.value >= fee, "Insufficient fee");
+
+        pyth.updatePriceFeeds{value: fee}(priceUpdateData);
+
+        PythStructs.Price memory price = pyth.getPriceNoOlderThan(priceFeedId, 60);
+        require(price.price > 0, "Invalid price from oracle");
+
+        realWorldValue = uint256(int256(price.price)); // note: price has exponent
         resultSet = true;
-        emit ResultSet(_actualValue);
+
+        emit ResultSet(int256(realWorldValue));
     }
 
     function receiveBlocklock(uint256 requestID, bytes calldata decryptionKey)
@@ -104,6 +125,8 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
 
         emit PredictionRevealed(requestID, revealed, p.accuracyScore);
     }
+
+    // ============ Getter Functions ============
 
     function getPrediction(uint256 id)
         external

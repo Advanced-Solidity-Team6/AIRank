@@ -1,0 +1,27 @@
+{
+  "name": "airank",
+  "version": "1.0.0",
+  "description": "This is the decentralized platform for ranking AI models.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Advanced-Solidity-Team6/AIRank.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Advanced-Solidity-Team6/AIRank/issues"
+  },
+  "homepage": "https://github.com/Advanced-Solidity-Team6/AIRank#readme",
+  "dependencies": {
+    "@pythnetwork/pyth-sdk-solidity": "^4.0.0"
+  }
+}
