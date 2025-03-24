@@ -16,6 +16,8 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         uint256 accuracyScore; // lower = better
     }
 
+    // ============ Public Storage ============
+
     uint256 public immutable predictionDeadlineBlock;
     uint256 public realWorldValue; // e.g., 24h later actual temperature
     bool public resultSet;
@@ -25,9 +27,13 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
     mapping(address => uint256) public predictorToID;
     mapping(uint256 => Prediction) public predictionsByID;
 
+    // ============ Events ============
+
     event PredictionSubmitted(uint256 indexed id, address indexed predictor);
     event PredictionRevealed(uint256 indexed id, int256 value, uint256 score);
     event ResultSet(int256 actualValue);
+
+    // ============ Modifiers ============
 
     modifier onlyBefore(uint256 blockNum) {
         require(block.number < blockNum, "Too late.");
@@ -38,6 +44,8 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         require(block.number > blockNum, "Too early.");
         _;
     }
+
+    // ============ Constructor ============
 
     constructor(uint256 _predictionDeadlineBlock, address blocklockContract)
         AbstractBlocklockReceiver(blocklockContract)
@@ -91,14 +99,10 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         int256 revealed = abi.decode(blocklock.decrypt(p.sealedPrediction, decryptionKey), (int256));
         p.revealedValue = revealed;
         p.revealed = true;
-        p.accuracyScore = absDiff(revealed, int256(realWorldValue));
+        p.accuracyScore = _absDiff(revealed, int256(realWorldValue));
         revealedCount += 1;
 
         emit PredictionRevealed(requestID, revealed, p.accuracyScore);
-    }
-
-    function absDiff(int256 a, int256 b) internal pure returns (uint256) {
-        return a >= b ? uint256(a - b) : uint256(b - a);
     }
 
     function getPrediction(uint256 id)
@@ -119,5 +123,11 @@ contract WeatherPredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGu
         }
 
         // NOTE: Sorting by score (ascending) would be done off-chain for now
+    }
+
+    // ============ Internal Functions ============
+
+    function _absDiff(int256 a, int256 b) internal pure returns (uint256) {
+        return a >= b ? uint256(a - b) : uint256(b - a);
     }
 }
