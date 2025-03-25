@@ -4,10 +4,11 @@ pragma solidity ^0.8.28;
 import {TypesLib} from "@blocklock-solidity/src/libraries/TypesLib.sol";
 import {AbstractBlocklockReceiver} from "@blocklock-solidity/src/AbstractBlocklockReceiver.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 
-contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
+contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard, Ownable {
     struct Prediction {
         uint256 predictionID;
         address predictor;
@@ -16,6 +17,16 @@ contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
         int256 revealedValue; // e.g., temperature
         bool revealed;
         uint256 accuracyScore; // lower = better
+        uint256 submissionTimestamp;
+    }
+    // tracking historical predictions (performance)
+    struct PredictorProfile {
+        address predictor;  
+        uint256 totalPredictions;
+        uint256 successfulPredictions;
+        uint256 cumulativeAccuracyScore;
+        uint256 reputationScore;
+        uint8 predictionTier;
     }
 
     // ============ Public Storage ============
@@ -25,15 +36,19 @@ contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
     bool public resultSet;
     uint256 public totalPredictions;
     uint256 public revealedCount;
+    uint256 public constant ACCURACY_THRESHOLD = 2;  // Within ±2°C
+
 
     IPyth public pyth;
     bytes32 public priceFeedId;
 
     mapping(address => uint256) public predictorToID;
     mapping(uint256 => Prediction) public predictionsByID;
+    mapping(address => PredictorProfile) public predictorProfiles;
 
-    // ============ Events ============
+    // ============ Events ===============
 
+    event PredictorProfileUpdated(address indexed predictor, uint256 totalPredictions, uint256 successfulPredictions, uint256 cumulativeAccuracyScore);
     event PredictionSubmitted(uint256 indexed id, address indexed predictor);
     event PredictionRevealed(uint256 indexed id, int256 value, uint256 score);
     event ResultSet(int256 actualValue);
@@ -52,8 +67,9 @@ contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
 
     // ============ Constructor ============
 
-    constructor(uint256 _predictionDeadlineBlock, address blocklockContract, address pythContract, bytes32 _priceFeedId)
+    constructor(uint256 _predictionDeadlineBlock, address blocklockContract, address pythContract, bytes32 _priceFeedId, address initialOwner)
         AbstractBlocklockReceiver(blocklockContract)
+        Ownable(initialOwner)
     {
         predictionDeadlineBlock = _predictionDeadlineBlock;
         pyth = IPyth(pythContract);
@@ -75,16 +91,28 @@ contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
             decryptionKey: hex"",
             revealedValue: 0,
             revealed: false,
-            accuracyScore: 0
+            accuracyScore: 0,
+            submissionTimestamp: block.timestamp
         });
 
         predictionsByID[id] = p;
         predictorToID[msg.sender] = id;
         totalPredictions += 1;
 
+        PredictorProfile memory profile = predictorProfiles[msg.sender];
+        profile.predictor = msg.sender;
+        profile.totalPredictions++;
+        emit PredictorProfileUpdated(
+            msg.sender, 
+            profile.totalPredictions, 
+            profile.successfulPredictions,
+            profile.cumulativeAccuracyScore
+        );
+
         emit PredictionSubmitted(id, msg.sender);
         return id;
     }
+
 
     function setActualValueFromPyth(bytes[] calldata priceUpdateData)
         external
@@ -123,10 +151,57 @@ contract PredictionLeaderboard is AbstractBlocklockReceiver, ReentrancyGuard {
         p.accuracyScore = _absDiff(revealed, int256(realWorldValue));
         revealedCount += 1;
 
+        // reputation calculation
+        PredictorProfile storage profile = predictorProfiles[p.predictor];
+        profile.totalPredictions++;
+
+        // update successful predictions and cumulative accuracy score
+        if (p.accuracyScore < ACCURACY_THRESHOLD) {
+            profile.successfulPredictions++;
+            profile.cumulativeAccuracyScore += p.accuracyScore;
+            profile.reputationScore++;
+
+            // calculate prediction tier
+            profile.predictionTier = calculateTier(profile.reputationScore);
+        }
+
+
         emit PredictionRevealed(requestID, revealed, p.accuracyScore);
     }
 
     // ============ Getter Functions ============
+
+    function calculateTier(uint256 reputationScore) internal pure returns (uint8) {
+        if (reputationScore >= 200) {
+            return 3; // top tier Master
+        } else if (reputationScore >= 100) {
+            return 2; // mid tier Expert
+        } else if (reputationScore >= 50) {
+            return 1; // low tier Novice
+        } 
+            return 0; // no tier
+        }
+
+    function getPredictorProfile(address predictor) 
+        external 
+        view 
+        returns (
+            address profileAddress,
+            uint256 successfulPredictions, 
+            uint256 cumulativeAccuracyScore
+        )  
+    {  
+        PredictorProfile memory profile = predictorProfiles[predictor];
+        uint256 avgScore = profile.totalPredictions > 0 
+            ? profile.cumulativeAccuracyScore / profile.totalPredictions 
+            : 0;
+        return (
+            profile.predictor, 
+            profile.successfulPredictions, 
+                vgScore
+        );
+    }
+   
 
     function getPrediction(uint256 id)
         external
