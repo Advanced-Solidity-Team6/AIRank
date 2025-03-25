@@ -4,14 +4,14 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {BLS} from "@blocklock-solidity/src/libraries/BLS.sol";
 
-import {WeatherPredictionLeaderboard} from "../src/AIRank.sol";
+import {PredictionContract} from "../src/PredictionContract.sol";
 import {TypesLib} from "@blocklock-solidity/src/libraries/TypesLib.sol";
 
-contract AIRankTest is Test {
-    WeatherPredictionLeaderboard leaderboard;
+contract PredictionContractTest is Test {
+    PredictionContract leaderboard;
 
     function setUp() public {
-        leaderboard = new WeatherPredictionLeaderboard(block.number + 100, address(0));
+        leaderboard = new PredictionContract(block.number + 100, address(0));
     }
 
     function test_userCanOnlySendOnePrediction() public {
