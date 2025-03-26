@@ -1,6 +1,7 @@
 import { ethers, getBytes } from "ethers";
 import { Blocklock, SolidityEncoder, encodeCiphertextToSolidity } from "blocklock-js";
 import dotenv from "dotenv";
+import * as fs from 'fs';
 
 // Load environment variables
 dotenv.config();
@@ -19,38 +20,43 @@ const BLOCKLOCK_DEFAULT_PUBLIC_KEY = {
 async function submitPrediction(
     privateKey: string,
     contractAddress: string,
-    predictionValue: number
+    predictionValue: number,
+    roundNumber: number
 ) {
     try {
         const provider = new ethers.JsonRpcProvider(process.env.CALIBRATION_TESTNET_RPC_URL);
         const wallet = new ethers.Wallet(privateKey, provider);
 
-        // Connect to the AIRank contract
+        // Connect to the PredictionContract
         const predictionContract = new ethers.Contract(
             contractAddress, 
-            require("../out/AIRank.sol/PredictionLeaderboard.json").abi, 
+            require("../out/PredictionContract.sol/PredictionContract.json").abi, 
             wallet
         );
         const blocklockjs = new Blocklock(wallet, await predictionContract.blocklock());
 
-        // Get prediction deadline block
-        const deadlineBlock = await predictionContract.predictionDeadlineBlock();
+        // Get round info
+        const round = await predictionContract.roundByNumber(roundNumber);
+        if (!round) {
+            throw new Error(`Round ${roundNumber} not found`);
+        }
 
         // Encode the prediction value
         const encoder = new SolidityEncoder();
-        const msgBytes = encoder.encodeInt256(BigInt(predictionValue));
+        const msgBytes = encoder.encodeUint256(BigInt(predictionValue));
         const encodedMessage = getBytes(msgBytes);
 
         // Encrypt the prediction
         const ciphertext = blocklockjs.encrypt(
             encodedMessage, 
-            deadlineBlock, 
+            round.revealDeadlineBlock, 
             BLOCKLOCK_DEFAULT_PUBLIC_KEY
         );
 
         // Submit the sealed prediction
         const tx = await predictionContract.submitSealedPrediction(
-            encodeCiphertextToSolidity(ciphertext)
+            encodeCiphertextToSolidity(ciphertext),
+            roundNumber
         );
         const receipt = await tx.wait(1);
 
@@ -60,9 +66,10 @@ async function submitPrediction(
 
         // Get prediction ID
         const predictor = await wallet.getAddress();
-        const predictionID = await predictionContract.predictorToID(predictor);
+        const predictionID = await predictionContract.roundToPredictorToID(roundNumber, predictor);
 
         console.log(`Prediction submitted successfully! Transaction hash: ${receipt.hash}`);
+        console.log(`Round Number: ${roundNumber}`);
         console.log(`Prediction ID: ${predictionID}`);
         console.log(`Predictor: ${predictor}`);
     } catch (error) {
@@ -72,18 +79,24 @@ async function submitPrediction(
 
 // Main function to execute the script
 async function main() {
-    const PRIVATE_KEY = process.env.CALIBRATION_TESTNET_PRIVATE_KEY;
-    const CONTRACT_ADDRESS = "YOUR_CONTRACT_ADDRESS";
-    const PREDICTION_VALUE = 100; // Your prediction value
+    try {
+        const PRIVATE_KEY = process.env.CALIBRATION_TESTNET_PRIVATE_KEY;
+        
+        // Read deployment data
+        const contractAddress = fs.readFileSync('./deployments/latest_prediction.txt', 'utf8').trim();
+        
+        const PREDICTION_VALUE = 100; // Your prediction value (e.g., ETH/USD price)
+        const ROUND_NUMBER = 1; // The round you want to participate in
 
-    // Ensure required values are provided
-    if (!PRIVATE_KEY) {
-        console.error("PRIVATE_KEY is missing in .env file!");
+        if (!PRIVATE_KEY) {
+            throw new Error("PRIVATE_KEY is missing in .env file!");
+        }
+
+        await submitPrediction(PRIVATE_KEY, contractAddress, PREDICTION_VALUE, ROUND_NUMBER);
+    } catch (error) {
+        console.error("Error:", (error as Error).message || error);
         process.exit(1);
     }
-
-    // Execute the function
-    await submitPrediction(PRIVATE_KEY, CONTRACT_ADDRESS, PREDICTION_VALUE);
 }
 
 // Run the script
