@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Script} from "forge-std/Script.sol";
 import {PredictionFactory} from "../src/PredictionFactory.sol";
-
+import {console} from "forge-std/console.sol";
 contract DeployFactory is Script {
     function run() external returns (PredictionFactory) {
 
@@ -15,7 +15,7 @@ contract DeployFactory is Script {
         
         // Save deployment info
         string memory deploymentInfo = vm.toString(address(factory));
-        vm.writeFile("./deployments/factory.txt", deploymentInfo);
+        console.log("Factory deployed at: %s", deploymentInfo);
         
         return factory;
     }

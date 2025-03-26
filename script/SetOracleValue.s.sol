@@ -8,8 +8,11 @@ import {console} from "forge-std/console.sol";
 
 contract SetOracleValue is Script {
     function run() external {
-        // Load prediction contract address from deployment
-        string memory predictionAddr = vm.readFile("./deployments/latest_prediction.txt");
+        string memory predictionAddr = "0x0000000000000000000000000000000000000000";
+        require(
+            vm.parseAddress(predictionAddr) != address(0),
+            "Prediction contract address not set. Please update predictionAddr with deployed contract address."
+        );
         address prediction = vm.parseAddress(predictionAddr);
         
         // Connect to prediction contract

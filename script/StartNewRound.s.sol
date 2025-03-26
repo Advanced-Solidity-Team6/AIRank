@@ -6,8 +6,11 @@ import {PredictionContract} from "../src/PredictionContract.sol";
 
 contract StartNewRound is Script {
     function run() external {
-        // Load prediction contract address
-        string memory predictionAddr = vm.readFile("./deployments/latest_prediction.txt");
+        string memory predictionAddr = "0x0000000000000000000000000000000000000000";
+        require(
+            vm.parseAddress(predictionAddr) != address(0),
+            "Prediction contract address not set. Please update predictionAddr with deployed contract address."
+        );
         address prediction = vm.parseAddress(predictionAddr);
         
         uint256 currentBlock = block.number;
