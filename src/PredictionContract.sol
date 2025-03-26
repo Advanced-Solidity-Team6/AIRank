@@ -70,8 +70,8 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         _;
     }
 
-    modifier onlyBeforePriceUpdate(uint256 blockNum) {
-        require(block.number < blockNum, "Too late for price update.");
+    modifier onlyInPriceUpdateInterval(uint256 blockNum1, uint256 blockNum2) {
+        require(block.number > blockNum1 && block.number < blockNum2, "Not in price update interval.");
         _;
     }
 
@@ -94,19 +94,20 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
     {
         require(_predictionDeadlineBlock > block.number, "Invalid prediction deadline.");
         require(_revealDeadlineBlock > _predictionDeadlineBlock, "Invalid reveal deadline.");
+        require(_revealDeadlineBlock - _priceReportInterval > _predictionDeadlineBlock, "Invalid price report interval.");
 
         latestRound++;
         Round memory r = Round({
             roundNumber: latestRound,
             predictionDeadlineBlock: _predictionDeadlineBlock,
             revealDeadlineBlock: _revealDeadlineBlock,
-            priceReportDeadline: _revealDeadlineBlock + _priceReportInterval, // reveal deadline + some amount of blocks
+            priceReportDeadline: _revealDeadlineBlock - _priceReportInterval, // reveal deadline - some amount of blocks (e.g. 2)
             realWorldValue: 0,
             resultSet: false
         });
 
         roundByNumber[latestRound] = r;
-        emit NewRound(latestRound, _predictionDeadlineBlock, _revealDeadlineBlock, _revealDeadlineBlock + _priceReportInterval);
+        emit NewRound(latestRound, _predictionDeadlineBlock, _revealDeadlineBlock, _revealDeadlineBlock - _priceReportInterval);
     }
 
     // Function for submitting sealed prediction    
@@ -145,13 +146,15 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         nonReentrant
     {        
         Prediction storage p = predictionsByID[requestID];
-        require(roundByNumber[p.roundNumber].resultSet, "Real value not set yet.");
+        require(roundByNumber[p.roundNumber].resultSet, "Real value not set.");
         require(!p.revealed, "Already revealed.");
 
         p.decryptionKey = decryptionKey;
         uint256 revealed = abi.decode(blocklock.decrypt(p.sealedPrediction, decryptionKey), (uint256));
         p.revealedValue = revealed;
         p.revealed = true;
+        
+        
         p.predictionError = _absDiff(revealed, roundByNumber[p.roundNumber].realWorldValue);
 
         PredictorProfile storage profile = predictorProfiles[p.predictor];
@@ -175,7 +178,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         external
         payable
         onlyAfter(roundByNumber[_roundNumber].predictionDeadlineBlock)
-        onlyBeforePriceUpdate(roundByNumber[_roundNumber].priceReportDeadline)
+        onlyInPriceUpdateInterval(roundByNumber[_roundNumber].priceReportDeadline, roundByNumber[_roundNumber].revealDeadlineBlock)
         nonReentrant
     {
         require(!roundByNumber[_roundNumber].resultSet, "Already set.");
@@ -185,7 +188,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
 
         pyth.updatePriceFeeds{value: fee}(priceUpdateData);
 
-        PythStructs.Price memory price = pyth.getPriceNoOlderThan(priceFeedId, (roundByNumber[_roundNumber].priceReportDeadline - roundByNumber[_roundNumber].revealDeadlineBlock) * 15); // cca. 15 seconds per block
+        PythStructs.Price memory price = pyth.getPriceNoOlderThan(priceFeedId, (block.number - roundByNumber[_roundNumber].priceReportDeadline) * 15); // cca. 15 seconds per block
         require(price.price > 0, "Invalid price from oracle");
 
         roundByNumber[_roundNumber].realWorldValue = uint256(int256(price.price)); // note: price has exponent => check in tests also type
