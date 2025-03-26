@@ -48,6 +48,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
     mapping(uint256 => Prediction) public predictionsByID;
     mapping(uint256 => Round) public roundByNumber;
     mapping(address => PredictorProfile) public predictorProfiles;
+    mapping(uint256 => uint256[]) public roundToPredictionIDs;
 
     // ============ Events ===============
 
@@ -130,6 +131,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         });
 
         predictionsByID[id] = p;
+        roundToPredictionIDs[_roundNumber].push(id);
         roundToPredictorToID[_roundNumber][msg.sender] = id;
 
         emit PredictionSubmitted(id, msg.sender);
