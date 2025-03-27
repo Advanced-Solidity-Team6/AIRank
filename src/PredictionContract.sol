@@ -72,7 +72,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         _;
     }
 
-    modifier onlyInPriceUpdateInterval(uint256 blockNum1, uint256 blockNum2) {
+    modifier onlyInPriceUpdateInterval(uint256 startBlock, uint256 endBlock) {
         require(block.number > blockNum1 && block.number < blockNum2, "Not in price update interval.");
         _;
     }
