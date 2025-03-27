@@ -256,23 +256,24 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
 
     // price parsing method
     function _parsePythPrice(PythStructs.Price memory price) internal pure returns (uint256) {
-        int64 priceValue = price.price;
+        uint256 priceValue = uint256(int256(price.price));
         int32 expo = price.expo;
 
-        // handle negative price values
-        uint256 absPrice = priceValue >= 0 ? uint256(int256(priceValue)) : uint256(-int256(priceValue));
+        // we can normalize to a fixed precision (e.g. 8 decimals)
+        uint32 normalizedPrecision = 8;
+
         
         // Convert to standard representation
         if (expo >= 0) {
-            return absPrice * (10 ** uint32(expo));
+            uint256 scaledValue = priceValue * (10 ** uint32(expo));
+            return scaledValue * (10 ** normalizedPrecision);
         } else {
-            // we can normalize to a fixed precision (e.g. 8 decimals)
-            uint32 normalizedPrecision = 8;
-            int32 adjustedExpo = -expo;
-            if (uint32(adjustedExpo) <= normalizedPrecision) {
-                return absPrice * (10 ** (normalizedPrecision - uint32(adjustedExpo)));
+          
+            uint32 adjustedExpo = uint32(-expo);
+            if (adjustedExpo <= normalizedPrecision) {
+                return priceValue * (10 ** (normalizedPrecision - adjustedExpo));
             } else {
-                return absPrice / (10 ** (uint32(adjustedExpo) - normalizedPrecision));
+                return priceValue / (10 ** (adjustedExpo - normalizedPrecision));
             }
         }
     }
