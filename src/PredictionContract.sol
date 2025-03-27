@@ -72,19 +72,19 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         _;
     }
 
-    modifier onlyInPriceUpdateInterval(uint256 blockNum1, uint256 blockNum2) {
-        require(block.number > blockNum1 && block.number < blockNum2, "Not in price update interval.");
+    modifier onlyInBlockInterval(uint256 startBlock, uint256 endBlock) {
+        require(block.number > startBlock && block.number < endBlock, "Not in price update interval.");
         _;
     }
 
     // ============ Constructor ============
 
-    constructor(address blocklockContract, address pythContract, bytes32 _priceFeedId, address initialOwner)
+    constructor(address blocklockContract, address pythContract, bytes32 newPriceFeedId, address initialOwner)
         AbstractBlocklockReceiver(blocklockContract)
         Ownable(initialOwner)
     {
         pyth = IPyth(pythContract);
-        priceFeedId = _priceFeedId;
+        priceFeedId = newPriceFeedId;
     }
 
     // ============ External Functions ============
@@ -179,7 +179,7 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
         external
         payable
         onlyAfter(roundByNumber[_roundNumber].predictionDeadlineBlock)
-        onlyInPriceUpdateInterval(roundByNumber[_roundNumber].priceReportDeadline, roundByNumber[_roundNumber].revealDeadlineBlock)
+        onlyInBlockInterval(roundByNumber[_roundNumber].priceReportDeadline, roundByNumber[_roundNumber].revealDeadlineBlock)
         nonReentrant
     {
         require(!roundByNumber[_roundNumber].resultSet, "Already set.");
@@ -194,7 +194,10 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
        );
         require(price.price > 0, "Invalid price from oracle");
 
-        roundByNumber[_roundNumber].realWorldValue = uint256(int256(price.price)); // note: price has exponent => check in tests also type
+        // use the properly scaled price value
+        uint256 scaledPrice = _parsePythPrice(price);
+
+        roundByNumber[_roundNumber].realWorldValue = scaledPrice;
         roundByNumber[_roundNumber].resultSet = true;
 
         emit ResultSet(uint256(int256(price.price)));
@@ -255,12 +258,22 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
     function _parsePythPrice(PythStructs.Price memory price) internal pure returns (uint256) {
         int64 priceValue = price.price;
         int32 expo = price.expo;
+
+        // handle negative price values
+        uint256 absPrice = priceValue >= 0 ? uint256(int256(priceValue)) : uint256(-int256(priceValue));
         
         // Convert to standard representation
         if (expo >= 0) {
-            return uint256(int256(priceValue)) * (10 ** uint32(expo));
+            return absPrice * (10 ** uint32(expo));
         } else {
-            return uint256(int256(priceValue)) / (10 ** uint32(-expo));
+            // we can normalize to a fixed precision (e.g. 8 decimals)
+            uint32 normalizedPrecision = 8;
+            int32 adjustedExpo = -expo;
+            if (uint32(adjustedExpo) <= normalizedPrecision) {
+                return absPrice * (10 ** (normalizedPrecision - uint32(adjustedExpo)));
+            } else {
+                return absPrice / (10 ** (uint32(adjustedExpo) - normalizedPrecision));
+            }
         }
     }
 
