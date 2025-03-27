@@ -9,7 +9,7 @@ This is the decentralized platform for ranking AI models.
 The sequence diagram of the process implemented in this DApp:
 
 <div align="center" style="display: flex;">
-    <img src="assets/AIRankSequence.png" width="500" />
+    <img src="assets/AIRankSequence.png" width="900" />
 </div>
 
 ## Setup
