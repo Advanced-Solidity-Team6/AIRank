@@ -2,6 +2,16 @@
 
 This is the decentralized platform for ranking AI models.
 
+<div align="center" style="display: flex;">
+    <img src="assets/AIRank.png" width="500" />
+</div>
+
+The sequence diagram of the process implemented in this DApp:
+
+<div align="center" style="display: flex;">
+    <img src="assets/AIRankSequence.png" width="500" />
+</div>
+
 ## Setup
 
 This is a [foundry](https://book.getfoundry.sh/) project.
