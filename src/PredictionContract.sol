@@ -44,6 +44,9 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
     IPyth public pyth;
     bytes32 public priceFeedId;
 
+    // support multiple price feeds
+    bytes32[] public priceFeedIds;
+
     mapping(uint256 => mapping(address => uint256)) public roundToPredictorToID; // Mapping of round number to predictor to prediction ID
     mapping(uint256 => Prediction) public predictionsByID;
     mapping(uint256 => Round) public roundByNumber;
@@ -188,7 +191,9 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
 
         pyth.updatePriceFeeds{value: fee}(priceUpdateData);
 
-        PythStructs.Price memory price = pyth.getPriceNoOlderThan(priceFeedId, (block.number - roundByNumber[_roundNumber].priceReportDeadline) * 15); // cca. 15 seconds per block
+        PythStructs.Price memory price = _validateAndGetPrice(
+               roundByNumber[_roundNumber].priceReportDeadline
+       );
         require(price.price > 0, "Invalid price from oracle");
 
         roundByNumber[_roundNumber].realWorldValue = uint256(int256(price.price)); // note: price has exponent => check in tests also type
@@ -213,5 +218,56 @@ contract PredictionContract is AbstractBlocklockReceiver, ReentrancyGuard, Ownab
     function _absDiff(uint256 a, uint256 b) internal pure returns (uint256) {
         return a >= b ? a - b : b - a;
     }
+    //  price validation method
+    function _validateAndGetPrice(
+        uint256 priceReportDeadline
+    ) internal view returns (PythStructs.Price memory) {
+        
+     
+        // Constants for validation
+        uint256 MAX_PRICE_AGE = 60;  // 60 seconds
+        uint256 MAX_CONFIDENCE_RATIO = 10;  // Confidence < price/10
 
+        // Retrieve price from Pyth
+        PythStructs.Price memory price = pyth.getPriceNoOlderThan(
+            priceFeedId, 
+            (block.number - priceReportDeadline) * 15  // ~15 seconds per block
+        );
+
+        // Validate price components
+        require(price.price > 0, "Invalid price value");
+        
+        // Check price age
+        uint256 currentTimestamp = block.timestamp;
+        require(
+            currentTimestamp - price.publishTime <= MAX_PRICE_AGE, 
+            "Price update too old"
+        );
+
+        // Check price confidence
+        require(
+            price.conf < uint64(abs(price.price) / MAX_CONFIDENCE_RATIO), 
+            "Price confidence too low"
+        );
+
+        return price;
+    }
+
+    // price parsing method
+    function _parsePythPrice(PythStructs.Price memory price) internal pure returns (uint256) {
+        int64 priceValue = price.price;
+        int32 expo = price.expo;
+        
+        // Convert to standard representation
+        if (expo >= 0) {
+            return uint256(int256(priceValue)) * (10 ** uint32(expo));
+        } else {
+            return uint256(int256(priceValue)) / (10 ** uint32(-expo));
+        }
+    }
+
+    // Utility method to handle absolute value for int256
+    function abs(int256 x) internal pure returns (uint256) {
+        return x >= 0 ? uint256(x) : uint256(-x);
+    }
 }
